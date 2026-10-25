@@ -28,7 +28,12 @@ import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.util.Log
 import com.google.android.gms.tasks.Tasks
+import com.google.mlkit.nl.languageid.LanguageIdentification
+import com.google.mlkit.nl.languageid.LanguageIdentificationOptions
+import com.google.mlkit.nl.languageid.LanguageIdentifier
 import com.google.mlkit.nl.translate.Translator
+import com.k2fsa.sherpa.onnx.OfflineTransducerModelConfig
+import java.io.File
 import com.k2fsa.sherpa.onnx.FeatureConfig
 import com.k2fsa.sherpa.onnx.OfflineModelConfig
 import com.k2fsa.sherpa.onnx.OfflineRecognizer
@@ -91,6 +96,8 @@ class TolmacsService : Service() {
     private var felvevo: AudioRecord? = null
     private var vad: Vad? = null
     private var felismero: OfflineRecognizer? = null
+    private var nyelvAzonosito: LanguageIdentifier? = null
+    @Volatile private var utolsoNyelv = ""
     private var tts: TextToSpeech? = null
     @Volatile private var ttsKesz = false
     private val forditok = HashMap<String, Translator>()
@@ -258,7 +265,7 @@ class TolmacsService : Service() {
         try {
             jelez("Beszédfelismerő betöltése…")
             val kulcs = beall.modell
-            if (!WhisperModell.kesz(this, kulcs)) {
+            if (!BeszedModell.kesz(this, kulcs)) {
                 jelez("Hiba: a beszédfelismerő modell nincs letöltve.")
                 fo.post { leallit() }
                 return
@@ -282,19 +289,39 @@ class TolmacsService : Service() {
                 assetManager = null,
                 config = OfflineRecognizerConfig(
                     featConfig = FeatureConfig(sampleRate = MINTAVETEL, featureDim = 80),
-                    modelConfig = OfflineModelConfig(
-                        whisper = OfflineWhisperModelConfig(
-                            encoder = WhisperModell.encoder(this, kulcs),
-                            decoder = WhisperModell.decoder(this, kulcs),
-                            language = "",          // üres = automatikus nyelvfelismerés
-                            task = "transcribe",
-                        ),
-                        tokens = WhisperModell.tokens(this, kulcs),
-                        modelType = "whisper",
-                        numThreads = 6,
-                    ),
+                    modelConfig = if (kulcs == BeszedModell.PARAKEET) {
+                        // NVIDIA Parakeet TDT v3: 25 európai nyelv, akcentusokra erős, gyors
+                        val d = BeszedModell.mappa(this, kulcs)
+                        OfflineModelConfig(
+                            transducer = OfflineTransducerModelConfig(
+                                encoder = File(d, "encoder.int8.onnx").absolutePath,
+                                decoder = File(d, "decoder.int8.onnx").absolutePath,
+                                joiner = File(d, "joiner.int8.onnx").absolutePath,
+                            ),
+                            tokens = File(d, "tokens.txt").absolutePath,
+                            modelType = "nemo_transducer",
+                            numThreads = 6,
+                        )
+                    } else {
+                        OfflineModelConfig(
+                            whisper = OfflineWhisperModelConfig(
+                                encoder = BeszedModell.encoder(this, kulcs),
+                                decoder = BeszedModell.decoder(this, kulcs),
+                                language = "",          // üres = automatikus nyelvfelismerés
+                                task = "transcribe",
+                            ),
+                            tokens = BeszedModell.tokens(this, kulcs),
+                            modelType = "whisper",
+                            numThreads = 6,
+                        )
+                    },
                 ),
             )
+            if (kulcs == BeszedModell.PARAKEET) {
+                nyelvAzonosito = LanguageIdentification.getClient(
+                    LanguageIdentificationOptions.Builder().setConfidenceThreshold(0.2f).build()
+                )
+            }
             jelez("Fordítók betöltése…")
             for (kod in FORRAS_NYELVEK.keys) forditok[kod] = Forditok.ugyfel(kod)
 
@@ -386,9 +413,13 @@ class TolmacsService : Service() {
             } finally {
                 stream.release()
             }
-            val nyelv = eredmeny.lang.trim().removePrefix("<|").removeSuffix("|>").lowercase(Locale.ROOT)
             val szoveg = eredmeny.text.trim()
             if (!ertelmes(szoveg)) continue
+            val nyelv = if (nyelvAzonosito != null) {
+                szovegNyelve(szoveg)
+            } else {
+                eredmeny.lang.trim().removePrefix("<|").removeSuffix("|>").lowercase(Locale.ROOT)
+            }
             val ford = forditok[nyelv]
             if (ford == null) {
                 // Magyar vagy nem támogatott nyelv: nem fordítjuk
@@ -407,9 +438,33 @@ class TolmacsService : Service() {
             val feldolg = (System.currentTimeMillis() - t0) / 1000f
             val hossz = seg.size / MINTAVETEL.toFloat()
             jelez(String.format(Locale.ROOT,
-                "Fut – %s → magyar\nMondat: %.1f s, feldolgozás: %.1f s\n„%s”",
-                FORRAS_NYELVEK[nyelv], hossz, feldolg, magyar))
+                "Fut – %s → magyar\nMondat: %.1f s, feldolgozás: %.1f s\nHallott: %s\nMagyarul: %s",
+                FORRAS_NYELVEK[nyelv], hossz, feldolg, szoveg, magyar))
         }
+    }
+
+    /**
+     * Parakeet nem mondja meg a nyelvet → ML Kit nyelvfelismerés a leiraton.
+     * Bizonytalan esetben az előző mondat nyelvét tartjuk meg (filmben ritkán vált).
+     */
+    private fun szovegNyelve(szoveg: String): String {
+        val azon = nyelvAzonosito ?: return ""
+        val lehetseges = try {
+            Tasks.await(azon.identifyPossibleLanguages(szoveg), 3, TimeUnit.SECONDS)
+        } catch (e: Exception) {
+            emptyList()
+        }
+        val legjobb = lehetseges
+            .filter { FORRAS_NYELVEK.containsKey(it.languageTag) || it.languageTag == "hu" }
+            .maxByOrNull { it.confidence }
+        val nyelv = when {
+            legjobb != null && legjobb.confidence >= 0.5f -> legjobb.languageTag
+            legjobb != null && utolsoNyelv.isEmpty() -> legjobb.languageTag
+            utolsoNyelv.isNotEmpty() -> utolsoNyelv
+            else -> "en"
+        }
+        utolsoNyelv = nyelv
+        return nyelv
     }
 
     private fun ertelmes(s: String): Boolean {
@@ -443,6 +498,9 @@ class TolmacsService : Service() {
         forditok.clear()
         felismero?.release()
         felismero = null
+        nyelvAzonosito?.close()
+        nyelvAzonosito = null
+        utolsoNyelv = ""
         vad?.release()
         vad = null
         szegmensek.clear()

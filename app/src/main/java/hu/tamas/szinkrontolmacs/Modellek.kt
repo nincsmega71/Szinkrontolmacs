@@ -9,6 +9,9 @@ import com.google.mlkit.nl.translate.TranslateRemoteModel
 import com.google.mlkit.nl.translate.Translation
 import com.google.mlkit.nl.translate.Translator
 import com.google.mlkit.nl.translate.TranslatorOptions
+import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
+import org.apache.commons.compress.compressors.bzip2.BZip2CompressorInputStream
+import java.io.BufferedInputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.net.HttpURLConnection
@@ -25,15 +28,28 @@ val FORRAS_NYELVEK = linkedMapOf(
     "it" to "olasz",
 )
 
-/** Whisper beszédfelismerő modell letöltése és helye. */
-object WhisperModell {
+/** Beszédfelismerő modellek (Parakeet v3 vagy Whisper) letöltése és helye. */
+object BeszedModell {
 
-    fun nev(kulcs: String) = if (kulcs == "base") "Gyors (base, kb. 160 MB)" else "Pontos (small, kb. 360 MB)"
+    const val PARAKEET = "parakeet"
+    val KULCSOK = listOf(PARAKEET, "small", "base")
 
-    fun mappa(ctx: Context, kulcs: String) = File(ctx.filesDir, "whisper-$kulcs")
+    fun nev(kulcs: String) = when (kulcs) {
+        PARAKEET -> "Legjobb (Parakeet v3, kb. 490 MB) – amerikai angolra is"
+        "base" -> "Gyors (Whisper base, kb. 160 MB)"
+        else -> "Pontos (Whisper small, kb. 360 MB)"
+    }
+
+    fun mappa(ctx: Context, kulcs: String) =
+        if (kulcs == PARAKEET) File(ctx.filesDir, "parakeet-v3") else File(ctx.filesDir, "whisper-$kulcs")
+
+    private val PARAKEET_FAJLOK = listOf("encoder.int8.onnx", "decoder.int8.onnx", "joiner.int8.onnx", "tokens.txt")
+    private const val PARAKEET_URL =
+        "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2"
 
     private fun fajlok(kulcs: String) =
-        listOf("$kulcs-encoder.int8.onnx", "$kulcs-decoder.int8.onnx", "$kulcs-tokens.txt")
+        if (kulcs == PARAKEET) PARAKEET_FAJLOK
+        else listOf("$kulcs-encoder.int8.onnx", "$kulcs-decoder.int8.onnx", "$kulcs-tokens.txt")
 
     fun encoder(ctx: Context, kulcs: String) = File(mappa(ctx, kulcs), "$kulcs-encoder.int8.onnx").absolutePath
     fun decoder(ctx: Context, kulcs: String) = File(mappa(ctx, kulcs), "$kulcs-decoder.int8.onnx").absolutePath
@@ -44,8 +60,13 @@ object WhisperModell {
 
     /** Blokkoló letöltés (háttérszálon hívd). haladas(szöveg) */
     fun letolt(ctx: Context, kulcs: String, haladas: (String) -> Unit) {
+        if (kesz(ctx, kulcs)) return
         val dir = mappa(ctx, kulcs)
         dir.mkdirs()
+        if (kulcs == PARAKEET) {
+            letoltParakeet(dir, haladas)
+            return
+        }
         val lista = fajlok(kulcs)
         lista.forEachIndexed { i, nev ->
             val cel = File(dir, nev)
@@ -59,12 +80,61 @@ object WhisperModell {
         }
     }
 
-    private fun letoltFajl(url: String, cel: File, haladas: (Int) -> Unit) {
+    /** A .tar.bz2 csomagot letöltés közben bontja ki (nem kell kétszer annyi hely). */
+    private fun letoltParakeet(dir: File, haladas: (String) -> Unit) {
+        val kapcsolat = megnyit(PARAKEET_URL)
+        val osszes = kapcsolat.contentLengthLong
+        var olvasott = 0L
+        var utolso = -1
+        val szamlalo = object : java.io.FilterInputStream(BufferedInputStream(kapcsolat.inputStream, 1 shl 16)) {
+            override fun read(): Int {
+                val b = super.read()
+                if (b >= 0) jelent(1)
+                return b
+            }
+
+            override fun read(b: ByteArray, off: Int, len: Int): Int {
+                val n = super.read(b, off, len)
+                if (n > 0) jelent(n)
+                return n
+            }
+
+            private fun jelent(n: Int) {
+                olvasott += n
+                val sz = if (osszes > 0) (olvasott * 100 / osszes).toInt() else 0
+                if (sz != utolso) {
+                    utolso = sz
+                    haladas("Parakeet letöltése és kibontása – $sz%")
+                }
+            }
+        }
+        try {
+            TarArchiveInputStream(BZip2CompressorInputStream(szamlalo)).use { tar ->
+                while (true) {
+                    val bejegyzes = tar.nextEntry ?: break
+                    if (bejegyzes.isDirectory) continue
+                    val nev = bejegyzes.name.substringAfterLast('/')
+                    if (nev !in PARAKEET_FAJLOK) continue
+                    val reszleges = File(dir, "$nev.part")
+                    FileOutputStream(reszleges).use { ki -> tar.copyTo(ki, 1 shl 16) }
+                    val cel = File(dir, nev)
+                    cel.delete()
+                    if (!reszleges.renameTo(cel)) throw IllegalStateException("Nem sikerült menteni: $nev")
+                }
+            }
+        } finally {
+            kapcsolat.disconnect()
+        }
+        if (!PARAKEET_FAJLOK.all { File(dir, it).length() > 0 }) {
+            throw IllegalStateException("Hiányos csomag, próbáld újra")
+        }
+    }
+
+    private fun megnyit(url: String): HttpURLConnection {
         var cim = url
-        var kapcsolat: HttpURLConnection
         var atiranyitas = 0
         while (true) {
-            kapcsolat = URL(cim).openConnection() as HttpURLConnection
+            val kapcsolat = URL(cim).openConnection() as HttpURLConnection
             kapcsolat.instanceFollowRedirects = false
             kapcsolat.connectTimeout = 20000
             kapcsolat.readTimeout = 60000
@@ -77,8 +147,12 @@ object WhisperModell {
                 continue
             }
             if (kod != 200) throw IllegalStateException("Letöltési hiba: HTTP $kod")
-            break
+            return kapcsolat
         }
+    }
+
+    private fun letoltFajl(url: String, cel: File, haladas: (Int) -> Unit) {
+        val kapcsolat = megnyit(url)
         val osszes = kapcsolat.contentLengthLong
         var olvasott = 0L
         var utolso = -1

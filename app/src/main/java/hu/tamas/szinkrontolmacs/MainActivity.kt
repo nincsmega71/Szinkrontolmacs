@@ -44,8 +44,6 @@ class MainActivity : Activity() {
     private lateinit var inditGomb: Button
     private lateinit var allapot: TextView
     private lateinit var sebessegFelirat: TextView
-    private var radioSmall: RadioButton? = null
-    private var radioBase: RadioButton? = null
     @Volatile private var letoltesFut = false
     private var probaTts: TextToSpeech? = null
 
@@ -113,21 +111,17 @@ class MainActivity : Activity() {
         // 1. Beszédfelismerő
         oszlop.addView(cim("1. Beszédfelismerő modell"))
         val csoport = RadioGroup(this)
-        radioSmall = RadioButton(this).apply {
-            id = View.generateViewId()
-            text = WhisperModell.nev("small")
-            textSize = 15f
+        val gombok = BeszedModell.KULCSOK.associateWith { kulcs ->
+            RadioButton(this).apply {
+                id = View.generateViewId()
+                text = BeszedModell.nev(kulcs)
+                textSize = 15f
+            }
         }
-        radioBase = RadioButton(this).apply {
-            id = View.generateViewId()
-            text = WhisperModell.nev("base")
-            textSize = 15f
-        }
-        csoport.addView(radioSmall)
-        csoport.addView(radioBase)
-        if (beall.modell == "base") radioBase?.isChecked = true else radioSmall?.isChecked = true
+        gombok.values.forEach { csoport.addView(it) }
+        (gombok[beall.modell] ?: gombok.getValue("small")).isChecked = true
         csoport.setOnCheckedChangeListener { _, checkedId ->
-            beall.modell = if (checkedId == radioBase?.id) "base" else "small"
+            beall.modell = gombok.entries.firstOrNull { it.value.id == checkedId }?.key ?: "small"
             modellEllenoriz()
         }
         oszlop.addView(csoport)
@@ -211,7 +205,7 @@ class MainActivity : Activity() {
     private fun modellEllenoriz() {
         val kulcs = beall.modell
         Thread {
-            val whisper = WhisperModell.kesz(this, kulcs)
+            val whisper = BeszedModell.kesz(this, kulcs)
             val ford = Forditok.mindKesz()
             runOnUiThread {
                 if (letoltesFut) return@runOnUiThread
@@ -234,7 +228,7 @@ class MainActivity : Activity() {
         val kulcs = beall.modell
         Thread {
             try {
-                WhisperModell.letolt(this, kulcs) { s -> runOnUiThread { modellAllapot.text = s } }
+                BeszedModell.letolt(this, kulcs) { s -> runOnUiThread { modellAllapot.text = s } }
                 Forditok.letoltMind { s -> runOnUiThread { modellAllapot.text = s } }
                 runOnUiThread { modellAllapot.text = "✔ Kész." }
             } catch (e: Exception) {
@@ -291,7 +285,7 @@ class MainActivity : Activity() {
             startService(Intent(this, TolmacsService::class.java).setAction(TolmacsService.ACTION_LEALLIT))
             return
         }
-        if (!WhisperModell.kesz(this, beall.modell)) {
+        if (!BeszedModell.kesz(this, beall.modell)) {
             Toast.makeText(this, "Előbb töltsd le a modelleket (1. lépés).", Toast.LENGTH_LONG).show()
             return
         }
