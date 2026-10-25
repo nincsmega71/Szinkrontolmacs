@@ -269,10 +269,10 @@ class TolmacsService : Service() {
                     sileroVadModelConfig = SileroVadModelConfig(
                         model = "silero_vad.onnx",
                         threshold = 0.5f,
-                        minSilenceDuration = 0.35f,
+                        minSilenceDuration = 0.25f,
                         minSpeechDuration = 0.25f,
                         windowSize = 512,
-                        maxSpeechDuration = 8.0f,
+                        maxSpeechDuration = 5.0f,
                     ),
                     sampleRate = MINTAVETEL,
                     numThreads = 1,
@@ -291,7 +291,7 @@ class TolmacsService : Service() {
                         ),
                         tokens = WhisperModell.tokens(this, kulcs),
                         modelType = "whisper",
-                        numThreads = 4,
+                        numThreads = 6,
                     ),
                 ),
             )
@@ -377,6 +377,7 @@ class TolmacsService : Service() {
             val seg = szegmensek.pollFirst(300, TimeUnit.MILLISECONDS) ?: continue
             if (seg.size < MINTAVETEL * 4 / 10) continue          // 0,4 s alatt: zaj
 
+            val t0 = System.currentTimeMillis()
             val stream = fel.createStream()
             val eredmeny = try {
                 stream.acceptWaveform(seg, MINTAVETEL)
@@ -403,7 +404,11 @@ class TolmacsService : Service() {
             if (leall) break
             if (magyar.isNullOrBlank()) continue
             beszel(magyar)
-            jelez("Fut – ${FORRAS_NYELVEK[nyelv]} → magyar\n„$magyar”")
+            val feldolg = (System.currentTimeMillis() - t0) / 1000f
+            val hossz = seg.size / MINTAVETEL.toFloat()
+            jelez(String.format(Locale.ROOT,
+                "Fut – %s → magyar\nMondat: %.1f s, feldolgozás: %.1f s\n„%s”",
+                FORRAS_NYELVEK[nyelv], hossz, feldolg, magyar))
         }
     }
 
