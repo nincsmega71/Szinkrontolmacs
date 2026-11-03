@@ -115,7 +115,7 @@ class TolmacsService : Service() {
     private val fokuszHandler = Handler(Looper.getMainLooper())
 
     private val tolmacsHangAttr = AudioAttributes.Builder()
-        .setUsage(AudioAttributes.USAGE_ASSISTANT)          // nem MEDIA → nem rögzítjük vissza
+        .setUsage(AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE) // nem MEDIA → nem rögzítjük vissza; füles ha van, különben hangszóró
         .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
         .build()
 
@@ -327,7 +327,7 @@ class TolmacsService : Service() {
 
             if (leall) return
             rogzitoSzal = Thread({ rogzites() }, "tolmacs-rogzito").also { it.start() }
-            jelez("Fut – indítsd el a videót. A magyar hang a fülhallgatóban szól.")
+            jelez("Fut – indítsd el a videót. A magyar hang a fülhallgatóban, ha az nincs, a hangszórón szól.")
             ertesitesFrissit("Fut – figyeli a lejátszott hangot")
             feldolgozas()
         } catch (e: Throwable) {

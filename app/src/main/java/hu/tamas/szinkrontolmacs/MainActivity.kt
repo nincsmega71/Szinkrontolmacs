@@ -105,7 +105,7 @@ class MainActivity : Activity() {
         })
         oszlop.addView(szoveg(
             "A telefonon lejátszott videó hangját (angol, spanyol, orosz, német, francia, olasz) " +
-                "automatikusan felismeri, és magyarul mondja a fülhallgatódba."
+                "automatikusan felismeri, és magyarul mondja a fülhallgatódba, vagy ha az nincs csatlakoztatva, a telefon hangszóróján."
         ))
 
         // 1. Beszédfelismerő
