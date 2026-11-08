@@ -104,7 +104,7 @@ class MainActivity : Activity() {
             setTypeface(typeface, Typeface.BOLD)
         })
         oszlop.addView(szoveg(
-            "A telefonon lejátszott videó hangját (angol, spanyol, orosz, német, francia, olasz) " +
+            "A telefonon lejátszott videó hangját (angol, spanyol, orosz, német, francia, olasz, lengyel) " +
                 "automatikusan felismeri, és magyarul mondja a fülhallgatódba, vagy ha az nincs csatlakoztatva, a telefon hangszóróján."
         ))
 

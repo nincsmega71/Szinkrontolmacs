@@ -2,7 +2,7 @@
 
 A telefonon lejátszott videó vagy film hangját élőben **magyarra fordítja**, és **magyarul mondja a fülhallgatódba**, mint egy szinkrontolmács.
 
-- **Forrásnyelvek:** angol, spanyol, orosz, német, francia, olasz – **automatikus nyelvfelismeréssel**
+- **Forrásnyelvek:** angol, spanyol, orosz, német, francia, olasz, lengyel – **automatikus nyelvfelismeréssel**
 - **Ingyenes és offline:** az első letöltés után internet nélkül, a telefonon fut
 - **Telefon:** Android 10 vagy újabb (fejlesztve: Samsung Galaxy S24 Ultra)
 
@@ -36,7 +36,7 @@ Az összes verzió a [Releases](https://github.com/nincsmega71/Szinkrontolmacs/r
 | **Pontos (Whisper small)** | kb. 360 MB | Tartalék, ha a Parakeet valamiért nem tetszik |
 | **Gyors (Whisper base)** | kb. 160 MB | Ha kevés a hely, gyengébb pontossággal |
 
-Koppints a **„Modellek letöltése”** gombra. **Wi-Fi ajánlott**, mert a beszédfelismerő mellett a 6 nyelv fordítója is letöltődik (kb. 200 MB).
+Koppints a **„Modellek letöltése”** gombra. **Wi-Fi ajánlott**, mert a beszédfelismerő mellett a 7 nyelv fordítója is letöltődik (kb. 230 MB).
 
 ### 2. Magyar felolvasó hang
 
