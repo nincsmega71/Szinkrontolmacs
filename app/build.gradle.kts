@@ -11,8 +11,8 @@ android {
         applicationId = "hu.tamas.szinkrontolmacs"
         minSdk = 29          // Android 10: belső hang rögzítése (AudioPlaybackCapture)
         targetSdk = 35
-        versionCode = 4
-        versionName = "1.3"
+        versionCode = 5
+        versionName = "1.4"
         ndk {
             abiFilters += listOf("arm64-v8a")   // S24 Ultra – kisebb APK
         }

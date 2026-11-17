@@ -27,6 +27,7 @@ val FORRAS_NYELVEK = linkedMapOf(
     "fr" to "francia",
     "it" to "olasz",
     "pl" to "lengyel",
+    "uk" to "ukrán",
 )
 
 /** Beszédfelismerő modellek (Parakeet v3 vagy Whisper) letöltése és helye. */
